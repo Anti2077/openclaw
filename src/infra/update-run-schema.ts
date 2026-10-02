@@ -1,12 +1,14 @@
 import { z } from "zod";
 import {
   UPDATE_NPM_ERROR_CODES,
+  UPDATE_RUN_CAUSES,
   UPDATE_RUN_DRIVER_LIMIT,
   UPDATE_RUN_PHASES,
   UPDATE_RUN_STATUSES,
   UPDATE_RUN_STEP_STATUSES,
   UPDATE_RUN_TRIGGERS,
 } from "../../packages/gateway-protocol/src/update-run-vocabulary.js";
+import { StateLeaseLossSchema } from "../shared/state-lease-loss.js";
 import {
   UpdateDoctorConfigChangeSchema,
   UpdateDoctorConfigWriteRefusalSchema,
@@ -137,6 +139,7 @@ export const UpdateFailureFactSchema = z.object({
   destination: UpdateDestinationFailureSchema.optional(),
   npmErrorCode: z.enum(UPDATE_NPM_ERROR_CODES).optional(),
   packageSpec: z.string().max(200).optional(),
+  leaseLoss: StateLeaseLossSchema.optional(),
 });
 
 const UpdateRollbackOutcomeSchema = z.object({
@@ -182,7 +185,7 @@ const version = z.object({
   buildId: text.nullable().optional(),
 });
 
-const UpdateRunStepSchema = z.object({
+export const UpdateRunStepSchema = z.object({
   step: text,
   status: z.enum(UPDATE_RUN_STEP_STATUSES),
   startedAtMs: timestamp.optional(),
@@ -230,10 +233,23 @@ export const UpdateRunRecordSchema = z.object({
   reason: text.nullable(),
   admission: admission.optional(),
   origin: z.object({
+    windowsUserSid: z
+      .string()
+      .max(184)
+      .regex(/^S-1-\d+(?:-\d+)+$/)
+      .optional(),
     admission: admission.optional(),
     candidateAdmission: candidateAdmission.optional(),
     updateRecoveryCapture: updateRecoveryCaptureStateSchema.optional(),
     driver: driver.optional(),
+    managedHandoff: z.object({ parent: driver, helper: driver }).optional(),
+    packageStage: z
+      .object({
+        prefix: z.string().max(4096),
+        packageRoot: z.string().max(4096),
+        identity: z.object({ dev: z.number(), ino: z.number(), birthtimeMs: z.number() }),
+      })
+      .optional(),
     previousDrivers: z
       .array(driver)
       .max(UPDATE_RUN_DRIVER_LIMIT - 1)
@@ -258,6 +274,7 @@ export const UpdateRunRecordSchema = z.object({
     campaignId: text.optional(),
     doctorHint: text.optional(),
     nextAction: text.optional(),
+    cause: z.enum(UPDATE_RUN_CAUSES).optional(),
   }),
   target: z.object({
     channel: text.optional(),
@@ -286,6 +303,7 @@ export const UpdateRunRecordSchema = z.object({
     pluginErrors: z.array(text).max(32).optional(),
     channelsReady: z.boolean().optional(),
     readyz: z.boolean().optional(),
+    coreReady: z.boolean().optional(),
     settled: z.boolean().optional(),
     noticeDelivered: z.boolean().optional(),
     doctorHint: text.optional(),

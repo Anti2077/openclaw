@@ -5,11 +5,8 @@ import { openRootFile, type RootFileOpenResult } from "../../infra/boundary-file
 import { resolveIdentityPathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 import { FsSafeError } from "../../infra/fs-safe.js";
 import { isPathInside } from "../../infra/path-guards.js";
-import {
-  resolveSandboxFsMount,
-  type SandboxResolvedFsPath,
-  type SandboxFsMount,
-} from "./fs-paths.js";
+import type { SandboxFsMount } from "./fs-bridge.types.js";
+import { resolveSandboxFsMount, type SandboxResolvedFsPath } from "./fs-paths.js";
 import {
   getSandboxHostPathPolicyKey,
   normalizeSandboxHostPath,
@@ -67,8 +64,6 @@ type RunCommand = (
   script: string,
   options?: {
     args?: string[];
-    stdin?: Buffer | string;
-    allowFailure?: boolean;
     signal?: AbortSignal;
   },
 ) => Promise<{ stdout: Buffer }>;
@@ -88,7 +83,8 @@ export class SandboxFsPathGuard {
       containerRoot: mount.containerRoot,
       writable: mount.writable,
       source: mount.source,
-      canonicalHostRoot: resolveSandboxHostPathViaExistingAncestor(mount.hostRoot),
+      canonicalHostRoot:
+        mount.canonicalHostRoot ?? resolveSandboxHostPathViaExistingAncestor(mount.hostRoot),
     }));
     this.runCommand = params.runCommand;
     this.containerOnlyMounts = params.containerOnlyMounts ?? [];
@@ -199,13 +195,9 @@ export class SandboxFsPathGuard {
     signal?: AbortSignal,
   ): Promise<string> {
     const resolved = await this.resolveCanonicalReadTarget(target, "authorize file reads", signal);
-    return this.policyPathForHostIdentity(resolved.target, resolved.canonicalHostPath);
-  }
-
-  private policyPathForHostIdentity(target: SandboxResolvedFsPath, observedPath: string): string {
     return this.policyPathForCanonicalHostIdentity(
-      target,
-      resolveIdentityPathViaExistingAncestorSync(observedPath),
+      resolved.target,
+      resolveIdentityPathViaExistingAncestorSync(resolved.canonicalHostPath),
     );
   }
 
@@ -260,26 +252,6 @@ export class SandboxFsPathGuard {
       throw new Error(`Sandbox path escapes allowed mounts; cannot ${action}: ${containerPath}`);
     }
     return lexicalMount;
-  }
-
-  private finalizePinnedEntry(params: {
-    mount: SandboxFsMount;
-    parentPath: string;
-    basename: string;
-    targetPath: string;
-    action: string;
-  }): PinnedSandboxEntry {
-    const relativeParentPath = path.posix.relative(params.mount.containerRoot, params.parentPath);
-    if (relativePathEscapesContainerRoot(relativeParentPath)) {
-      throw new Error(
-        `Sandbox path escapes allowed mounts; cannot ${params.action}: ${params.targetPath}`,
-      );
-    }
-    return {
-      mountRootPath: params.mount.containerRoot,
-      relativeParentPath: relativeParentPath === "." ? "" : relativeParentPath,
-      basename: params.basename,
-    };
   }
 
   private async assertGuardedPathSafety(
@@ -362,14 +334,12 @@ export class SandboxFsPathGuard {
       throw new Error(`Invalid sandbox entry target: ${target.containerPath}`);
     }
     const parentPath = normalizeContainerPathCore(path.posix.dirname(target.containerPath));
-    const mount = this.resolveRequiredMount(parentPath, action);
-    return this.finalizePinnedEntry({
-      mount,
+    const { mountRootPath, relativePath } = this.resolvePinnedDirectory(
       parentPath,
-      basename,
-      targetPath: target.containerPath,
       action,
-    });
+      target.containerPath,
+    );
+    return { mountRootPath, relativeParentPath: relativePath, basename };
   }
 
   async resolveAnchoredSandboxEntry(
@@ -398,14 +368,12 @@ export class SandboxFsPathGuard {
     action: string,
   ): Promise<PinnedSandboxEntry> {
     const anchoredTarget = await this.resolveAnchoredSandboxEntry(target, action);
-    const mount = this.resolveRequiredMount(anchoredTarget.canonicalParentPath, action);
-    return this.finalizePinnedEntry({
-      mount,
-      parentPath: anchoredTarget.canonicalParentPath,
-      basename: anchoredTarget.basename,
-      targetPath: target.containerPath,
+    const { mountRootPath, relativePath } = this.resolvePinnedDirectory(
+      anchoredTarget.canonicalParentPath,
       action,
-    });
+      target.containerPath,
+    );
+    return { mountRootPath, relativeParentPath: relativePath, basename: anchoredTarget.basename };
   }
 
   /**
@@ -451,12 +419,18 @@ export class SandboxFsPathGuard {
     target: SandboxResolvedFsPath,
     action: string,
   ): PinnedSandboxDirectoryEntry {
-    const mount = this.resolveRequiredMount(target.containerPath, action);
-    const relativePath = path.posix.relative(mount.containerRoot, target.containerPath);
+    return this.resolvePinnedDirectory(target.containerPath, action);
+  }
+
+  private resolvePinnedDirectory(
+    containerPath: string,
+    action: string,
+    displayPath = containerPath,
+  ): PinnedSandboxDirectoryEntry {
+    const mount = this.resolveRequiredMount(containerPath, action);
+    const relativePath = path.posix.relative(mount.containerRoot, containerPath);
     if (relativePathEscapesContainerRoot(relativePath)) {
-      throw new Error(
-        `Sandbox path escapes allowed mounts; cannot ${action}: ${target.containerPath}`,
-      );
+      throw new Error(`Sandbox path escapes allowed mounts; cannot ${action}: ${displayPath}`);
     }
     return {
       mountRootPath: mount.containerRoot,
@@ -550,7 +524,7 @@ export class SandboxFsPathGuard {
     // Remove the record terminator, not significant whitespace in the path.
     const canonical = result.stdout.toString("utf8").replace(/\n$/, "");
     if (!canonical.startsWith("/")) {
-      throw new Error(`Failed to resolve canonical sandbox path: ${params.containerPath}`);
+      throw new Error(`Failed to resolve sandbox path: ${params.containerPath}`);
     }
     return normalizeContainerPathCore(canonical);
   }

@@ -1,15 +1,27 @@
 #!/usr/bin/env node
 // One managed update across the published-driver/candidate boundary, with synthetic state only.
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  evaluateInstalledPackageBudget,
+  measureInstalledPackageTree,
+} from "../../../check-openclaw-installed-package-budget.mts";
 import { runCancelableCommand } from "../../../lib/cancelable-command.mts";
 import { toErrorObject } from "../../../lib/error-format.mts";
 import { hasUnjoinedWork, runManagedCommand } from "../../../lib/managed-child-process.mts";
-import { classifyReleaseTrain, parseReleaseVersion } from "../../../lib/release-version.mjs";
+import {
+  classifyReleaseTrain,
+  compareReleaseVersions,
+  parseReleaseVersion,
+} from "../../../lib/release-version.mjs";
+import { stampFixtureVersion } from "../update-first-hop-package-fixtures.mjs";
+import { assertNoIncognitoArtifacts } from "./incognito-artifacts.mjs";
+import { provePublishedDriverScopedRestore } from "./published-driver-scoped-restore.mjs";
 import {
   assertPublishedDriverReclaimed,
   inspectPublishedDriverSqlite,
@@ -21,6 +33,7 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const [candidateArg, artifactsArg, driverTag = "latest"] = process.argv.slice(2);
 const legacySqlite = process.env.OPENCLAW_PUBLISHED_DRIVER_LEGACY_SQLITE === "1";
+const linkedRoot = process.env.OPENCLAW_PUBLISHED_DRIVER_LINKED_ROOT === "1";
 assert.equal(process.platform, "linux", "The managed-service fixture requires Linux");
 assert(fs.existsSync("/.dockerenv"), "Run through the bare Docker E2E runner");
 const accountHome = os.userInfo().homedir;
@@ -79,6 +92,44 @@ for (const directory of [env.HOME, env.TMPDIR, state, bin]) {
 
 function writeJson(name, value) {
   fs.writeFileSync(path.join(artifacts, `${name}.json`), `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Where the package path points, and what each release directory holds. This is a record of
+ * what an updater left, so it never throws: an unreadable part is recorded as such.
+ */
+function describeLinkedRoot() {
+  const read = (inspect) => {
+    try {
+      return inspect();
+    } catch (error) {
+      return { unreadable: error?.code ?? String(error) };
+    }
+  };
+  return {
+    packageRoot: read(() => {
+      const stat = fs.lstatSync(packageRoot);
+      return stat.isSymbolicLink()
+        ? { type: "link", target: fs.readlinkSync(packageRoot) }
+        : { type: stat.isDirectory() ? "directory" : "file" };
+    }),
+    resolved: read(() => path.relative(prefix, fs.realpathSync(packageRoot))),
+    releases: read(() =>
+      Object.fromEntries(
+        fs.readdirSync(path.join(prefix, "releases")).map((name) => [
+          name,
+          read(() => {
+            const modules = path.join(prefix, "releases", name, "lib/node_modules");
+            const manifest = path.join(modules, "openclaw/package.json");
+            return {
+              version: fs.existsSync(manifest) ? readJson(manifest).version : null,
+              entries: fs.readdirSync(modules).toSorted(),
+            };
+          }),
+        ]),
+      ),
+    ),
+  };
 }
 
 async function run(name, command, args, allowFailure = false) {
@@ -155,6 +206,17 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+async function relabelCandidate(from, to) {
+  const dir = path.join(runtime, "candidate-relabel");
+  fs.mkdirSync(dir, { recursive: true });
+  await run("candidate-relabel-extract", "tar", ["-xf", candidate, "-C", dir]);
+  stampFixtureVersion(path.join(dir, "package"), to);
+  const relabeled = path.join(runtime, "openclaw-candidate-relabeled.tgz");
+  await run("candidate-relabel-pack", "tar", ["-czf", relabeled, "-C", dir, "package"]);
+  writeJson("candidate-relabel", { from, to, package: relabeled });
+  return relabeled;
+}
+
 async function freePort() {
   const server = net.createServer();
   await new Promise((resolve, reject) => {
@@ -219,8 +281,28 @@ process.exitCode = await runCancelableCommand(async (signal) => {
       ]);
     }
     assert.equal(readJson(path.join(packageRoot, "package.json")).version, driverVersion);
+    if (linkedRoot) {
+      // Proposed layout, not shipped: each release in its own directory behind a linked
+      // package path. A downgrade from such a release would leave a published updater on that
+      // layout, and it must still update.
+      const releaseRoot = path.join(prefix, "releases", driverVersion, "lib/node_modules/openclaw");
+      fs.mkdirSync(path.dirname(releaseRoot), { recursive: true });
+      fs.renameSync(packageRoot, releaseRoot);
+      fs.symlinkSync(path.relative(path.dirname(packageRoot), releaseRoot), packageRoot);
+      assert.equal(readJson(path.join(packageRoot, "package.json")).version, driverVersion);
+      writeJson("linked-root-before", describeLinkedRoot());
+    }
     await run("candidate-build", "tar", ["-xOf", candidate, "package/dist/build-info.json"]);
-    const build = output("candidate-build");
+    let build = output("candidate-build");
+    let candidatePackage = candidate;
+    // Between a release and its forward-port, main lags npm latest. The cell proves
+    // the update mechanics, not the version label: relabel the candidate to the
+    // driver version so the future-version guard sees an upgrade, not a downgrade.
+    if (compareReleaseVersions(build.version, driverVersion) < 0) {
+      candidatePackage = await relabelCandidate(build.version, driverVersion);
+      // Match the relabeled dist/build-info.json exactly; the installed bytes carry no source label.
+      build = { ...build, version: driverVersion };
+    }
     const driverBuild = legacySqlite
       ? readJson(path.join(packageRoot, "dist/build-info.json"))
       : undefined;
@@ -237,6 +319,21 @@ process.exitCode = await runCancelableCommand(async (signal) => {
 
     const port = await freePort();
     const token = "published-driver-synthetic-token";
+    const probe = async (name, version) => {
+      await run(name, "openclaw", [
+        "gateway",
+        "probe",
+        "--url",
+        `ws://127.0.0.1:${port}`,
+        "--token",
+        token,
+        "--json",
+      ]);
+      const target = output(name).targets.find((entry) => entry.url === `ws://127.0.0.1:${port}`);
+      assert.equal(target?.connect.ok, true);
+      assert.equal(target.server.version, version);
+      return target;
+    };
     const config = {
       gateway: {
         mode: "local",
@@ -247,13 +344,15 @@ process.exitCode = await runCancelableCommand(async (signal) => {
       },
       plugins: { enabled: false },
       agents: {
-        list: [
-          { id: "main", default: true, workspace: path.join(runtime, "workspaces", "main") },
-          { id: "second", workspace: path.join(runtime, "workspaces", "second") },
-        ],
+        ownership: "explicit",
+        defaults: { heartbeat: { every: "0m" } },
+        entries: {
+          main: { workspace: path.join(runtime, "workspaces", "main") },
+          second: { workspace: path.join(runtime, "workspaces", "second") },
+        },
       },
     };
-    for (const agent of config.agents.list) {
+    for (const agent of Object.values(config.agents.entries)) {
       fs.mkdirSync(agent.workspace, { recursive: true });
     }
     fs.writeFileSync(env.OPENCLAW_CONFIG_PATH, `${JSON.stringify(config)}\n`);
@@ -278,20 +377,7 @@ process.exitCode = await runCancelableCommand(async (signal) => {
     await run("install-service", "openclaw", ["gateway", "install", "--force", "--json"]);
     await ready("before-ready", port);
     if (legacySqlite) {
-      await run("running-before", "openclaw", [
-        "gateway",
-        "probe",
-        "--url",
-        `ws://127.0.0.1:${port}`,
-        "--token",
-        token,
-        "--json",
-      ]);
-      const serving = output("running-before").targets.find(
-        (entry) => entry.url === `ws://127.0.0.1:${port}`,
-      );
-      assert.equal(serving?.connect.ok, true);
-      assert.equal(serving.server.version, driverVersion);
+      const serving = await probe("running-before", driverVersion);
       const buildComparable =
         typeof serving.server.buildId === "string" && typeof driverBuild.buildId === "string";
       if (buildComparable) {
@@ -310,6 +396,82 @@ process.exitCode = await runCancelableCommand(async (signal) => {
       env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_PID_FILE,
       "utf8",
     );
+    const gateway = async (name, method, params) => {
+      await run(name, "openclaw", [
+        "gateway",
+        "call",
+        method,
+        "--url",
+        `ws://127.0.0.1:${port}`,
+        "--token",
+        token,
+        "--timeout",
+        "30000",
+        "--json",
+        "--params",
+        JSON.stringify(params),
+      ]);
+      return output(name);
+    };
+    const sessions = [];
+    for (const incognito of [false, true]) {
+      const kind = incognito ? "incognito" : "durable";
+      const marker = `published-driver-${kind}-${randomUUID()}`;
+      const created = await gateway(`${kind}-create`, "sessions.create", {
+        agentId: "main",
+        ...(incognito ? { incognito: true } : { key: "agent:main:update-cell" }),
+      });
+      assert(created.ok && created.key && created.sessionId);
+      assert.equal(created.runStarted, false, "Fixture unexpectedly started inference");
+      if (incognito) {
+        assert.equal(created.entry.incognito, true);
+      }
+      const params = { agentId: "main", sessionKey: created.key };
+      const injected = await gateway(`${kind}-inject`, "chat.inject", {
+        ...params,
+        message: marker,
+      });
+      assert(injected.ok && injected.messageId);
+      const history = await gateway(`${kind}-before`, "chat.history", { ...params, limit: 20 });
+      assert.equal(history.sessionId, created.sessionId);
+      assert(
+        JSON.stringify(history.messages).includes(marker),
+        `${kind} content missing before update`,
+      );
+      sessions.push({ kind, marker, params, sessionId: created.sessionId });
+    }
+    const inspectIncognito = (name) => {
+      // Published updaters swap inside the directory behind a linked package path, so their
+      // backups land beside the link's target.
+      const packageParents = [
+        path.dirname(packageRoot),
+        ...(linkedRoot ? [path.dirname(fs.realpathSync(packageRoot))] : []),
+      ];
+      const backups = packageParents.flatMap((parent) =>
+        fs
+          .readdirSync(parent)
+          .filter((entry) => /^\.openclaw[.-]package-(?:backup|activation)-/u.test(entry))
+          .map((entry) => path.join(parent, entry)),
+      );
+      writeJson(name, assertNoIncognitoArtifacts([state, ...backups], sessions[1].marker));
+    };
+    inspectIncognito("incognito-artifacts-before");
+    // Seed retained 2026.9.7 state after baseline setup: newer published Doctors
+    // reject these sidecars, while candidate repair must carry them unchanged.
+    const orphanSidecar = path.join(state, "credentials/auth-profiles", `${"e".repeat(32)}.json`);
+    const orphanSidecarBytes = `${JSON.stringify({
+      version: 1,
+      profileId: "openai-codex:default",
+      provider: "openai-codex",
+      encrypted: {
+        algorithm: "aes-256-gcm",
+        iv: "c3ludGg=",
+        tag: "c3ludGg=",
+        ciphertext: "c3ludGg=",
+      },
+    })}\n`;
+    fs.mkdirSync(path.dirname(orphanSidecar), { recursive: true });
+    fs.writeFileSync(orphanSidecar, orphanSidecarBytes, { mode: 0o600 });
     let update;
     let updateFailure;
     const sqliteBefore = legacySqlite ? inspectPublishedDriverSqlite(state, 0) : undefined;
@@ -320,7 +482,7 @@ process.exitCode = await runCancelableCommand(async (signal) => {
       update = await run(
         "update",
         "openclaw",
-        ["update", "--tag", candidate, "--yes", "--json"],
+        ["update", "--tag", candidatePackage, "--yes", "--json"],
         true,
       );
       if (update.exitCode !== 0) {
@@ -331,6 +493,11 @@ process.exitCode = await runCancelableCommand(async (signal) => {
       }
     } catch (error) {
       updateFailure = toErrorObject(error, "Published updater failed");
+    }
+    // Record the layout the updater left whether or not it succeeded: a published updater that
+    // cannot handle a linked package path is the failure this mode exists to explain.
+    if (linkedRoot) {
+      writeJson("linked-root-after", describeLinkedRoot());
     }
     // Public status belongs after updater settlement and before fixture teardown.
     // A failed query is secondary to the original update outcome.
@@ -368,26 +535,43 @@ process.exitCode = await runCancelableCommand(async (signal) => {
     assert.equal(recorded.status, "succeeded");
     assert.equal(result.after?.version, build.version);
     assert.deepEqual(readJson(path.join(packageRoot, "dist/build-info.json")), build);
+    // This driver degrades past the walk cap that 2026.9.x updaters enforce, so check the tree
+    // it installed against the release budget those updaters still need. The budget refuses a
+    // link, so the linked mode measures the link's target.
+    const installedTree = await measureInstalledPackageTree(
+      linkedRoot ? fs.realpathSync(packageRoot) : packageRoot,
+    );
+    writeJson("installed-tree", {
+      entries: installedTree.entries,
+      bytes: installedTree.bytes,
+      contributors: installedTree.contributors.slice(0, 10),
+    });
+    assert.deepEqual(
+      evaluateInstalledPackageBudget(installedTree),
+      [],
+      `Installed candidate tree exceeds the release budget (${installedTree.entries} entries, ${installedTree.bytes} bytes); see docs/ci/release-validation/package-acceptance.md#installed-package-tree-budget`,
+    );
+    assert.equal(fs.readFileSync(orphanSidecar, "utf8"), orphanSidecarBytes);
     assert.notEqual(
       fs.readFileSync(env.OPENCLAW_UPGRADE_SURVIVOR_SYSTEMCTL_SHIM_PID_FILE, "utf8"),
       beforePid,
       "Update did not replace the managed service",
     );
     await ready("after-ready", port);
-    await run("running-version", "openclaw", [
-      "gateway",
-      "probe",
-      "--url",
-      `ws://127.0.0.1:${port}`,
-      "--token",
-      token,
-      "--json",
-    ]);
-    const target = output("running-version").targets.find(
-      (entry) => entry.url === `ws://127.0.0.1:${port}`,
-    );
-    assert.equal(target?.connect.ok, true);
-    assert.equal(target.server.version, build.version);
+    const target = await probe("running-version", build.version);
+    for (const session of sessions) {
+      const history = await gateway(`${session.kind}-after`, "chat.history", {
+        ...session.params,
+        limit: 20,
+      });
+      if (session.kind === "incognito") {
+        assert.deepEqual(history.messages, [], "Incognito content survived restart");
+      } else {
+        assert.equal(history.sessionId, session.sessionId);
+        assert(JSON.stringify(history.messages).includes(session.marker), "Durable content lost");
+      }
+    }
+    inspectIncognito("incognito-artifacts-after");
     if (sqliteBefore) {
       assert.equal(typeof build.buildId, "string", "Candidate build identity is missing");
       assert.equal(target.server.buildId, build.buildId);
@@ -417,6 +601,21 @@ process.exitCode = await runCancelableCommand(async (signal) => {
           .includes("Enabling incremental SQLite reclamation once:"),
         "Second maintenance repeated conversion",
       );
+    }
+    if (process.env.OPENCLAW_PUBLISHED_DRIVER_SCOPED_RESTORE === "1") {
+      await run("stop-before-scoped-restore", path.join(bin, "systemctl"), [
+        "--user",
+        "stop",
+        "openclaw-gateway.service",
+      ]);
+      await provePublishedDriverScopedRestore({
+        packageRoot,
+        state,
+        env,
+        artifacts,
+        run,
+        writeJson,
+      });
     }
     writeJson("summary", {
       driverVersion,

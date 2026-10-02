@@ -1,31 +1,32 @@
 import { cloneEnvWithPlatformSemantics } from "../config/config-env-vars.js";
+import { createSessionWorkerExecutionSource } from "../config/sessions/session-worker-execution-source.js";
+import { resolveStateDir } from "../config/state-dir.js";
 import { resolvePathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { withFileLock } from "../infra/file-lock.js";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
-import { runSqliteReadOnlyOperation } from "../infra/sqlite-readonly-worker.js";
+import { getArtifactPreservingSqliteRead } from "../infra/sqlite-snapshot-source.js";
 import {
   assertExistingDatabaseIdentity,
   readDatabasePathIdentitySync,
 } from "../infra/sqlite-worker-identity.js";
-import { createSqliteWorkerOperationAdmission } from "../infra/sqlite-worker-operation-admission.js";
 import type { SqliteWorkerStore } from "../infra/sqlite-worker-store.js";
 import type { OpenClawAgentDatabaseOptions } from "../state/openclaw-agent-db-contract.js";
 import { registerOpenClawAgentDatabaseAsyncResource } from "../state/openclaw-agent-db-resources.js";
-import { captureOpenClawAgentDatabaseExecution } from "../state/openclaw-agent-execution.js";
+import { captureOpenClawAgentDatabaseExecutionAsync } from "../state/openclaw-agent-execution.js";
 import {
   openOpenClawAgentSqliteWorkerStore,
   type OpenClawAgentSqliteWorkerStore,
 } from "../state/openclaw-agent-worker-store.js";
 import { runOpenClawAgentWorkerWrite } from "../state/openclaw-agent-write-admission.js";
-import { registerOpenClawStateDatabaseAsyncResource } from "../state/openclaw-state-db-cache.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { captureOpenClawStateReadContext } from "../state/openclaw-state-worker-context.js";
 import {
   resolveAuthProfileDatabaseOwnerId,
   resolveAuthProfileDatabasePath,
 } from "./auth-profiles/sqlite.js";
-import type { PersistedPluginModelCatalog } from "./plugin-model-catalog.read-operation.js";
+import { readPluginModelCatalogsInWorker } from "./plugin-model-catalog-read.js";
+import type { PersistedPluginModelCatalog } from "./plugin-model-catalog-read.types.js";
 import type { PluginModelCatalogCredentialOperations } from "./plugin-model-catalog.worker.js";
 
 /** A clean read must follow publication settlement, including another process's uncommitted row. */
@@ -65,26 +66,17 @@ export async function withPluginModelCatalogWorker<T>(
     scope: Pick<SqliteWorkerStore<PluginModelCatalogCredentialOperations>, "execute">,
   ) => Promise<T>,
 ): Promise<T> {
-  const execution = captureOpenClawAgentDatabaseExecution(options);
+  const execution = await captureOpenClawAgentDatabaseExecutionAsync(options);
   let worker: OpenClawAgentSqliteWorkerStore<PluginModelCatalogCredentialOperations> | undefined;
   try {
     if (prepare) {
       await runOpenClawAgentWorkerWrite(options, () =>
-        execution.prepare({
-          assertCurrent: () => execution.assertCurrent(),
-          createAdmission(binding) {
-            return () => ({
-              nativeLocations: binding.nativeLocations,
-              admission: createSqliteWorkerOperationAdmission((request, grant) => {
-                binding.authorize(request);
-                execution.assertCurrent();
-                if (!grant()) {
-                  throw new Error("Catalog database preparation authority expired");
-                }
-              }, binding.attachment),
-            });
-          },
-        }),
+        execution.prepare(
+          createSessionWorkerExecutionSource(
+            () => execution.assertCurrent(),
+            "Catalog database preparation authority expired",
+          ),
+        ),
       );
     }
     worker = await openOpenClawAgentSqliteWorkerStore<PluginModelCatalogCredentialOperations>(
@@ -138,27 +130,23 @@ export async function loadPersistedPluginModelCatalogs(
     root.maintenanceScope?.assertAdmission();
     assertExistingDatabaseIdentity(options.path, identity.key, identity.birthtime);
   };
-  assertCurrent();
   const unregisterAgent = registerOpenClawAgentDatabaseAsyncResource({ ...options, revoke, close });
-  let unregisterRoot: (() => void) | undefined;
   try {
-    unregisterRoot = registerOpenClawStateDatabaseAsyncResource({
-      close: async (closedIdentity) => {
-        if (!closedIdentity || closedIdentity.key === root.admission.identity.key) {
-          await close();
-        }
+    const inspection = getArtifactPreservingSqliteRead(options.path);
+    reading = readPluginModelCatalogsInWorker(
+      {
+        ...options,
+        path: inspection?.canonicalPath ?? options.path,
+        expectedIdentity: inspection,
+        env: { ...env, OPENCLAW_STATE_DIR: resolveStateDir(env) },
+        pluginIds: pluginIds && [...pluginIds],
       },
-    });
-    reading = runSqliteReadOnlyOperation(
-      options.path,
-      { type: "pluginCatalog.read", input: { agentId: options.agentId, pluginIds } },
-      { source: "canonical", expectedIdentity: identity.key, env, signal: controller.signal },
+      controller.signal,
     );
     const catalogs = await reading;
     assertCurrent();
     return catalogs;
   } finally {
-    unregisterRoot?.();
     unregisterAgent();
   }
 }
