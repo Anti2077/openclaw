@@ -882,6 +882,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/embedded-agent-runner/run-entry.test.ts",
   "src/agents/openclaw-tools.browser-plugin.integration.test.ts",
   "src/skills/runtime/tool-dispatch.test.ts",
+  "src/agents/openclaw-tools.requester-yield.test.ts",
   "src/agents/openclaw-tools.sessions-steering.test.ts",
   "src/agents/openclaw-tools.sessions-send-child-coordination.test.ts",
   "src/agents/tools/scoped-session-access.test.ts",

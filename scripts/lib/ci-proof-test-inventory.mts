@@ -1213,6 +1213,7 @@ export const PR_PROTECTED_RUNTIME_TEST_FILES: readonly string[] = [
   "src/agents/openai-transport-stream.deepseek-and-shaping.test.ts",
   "src/agents/openclaw-tools.agents.test.ts",
   "src/agents/openclaw-tools.camera.test.ts",
+  "src/agents/openclaw-tools.requester-yield.test.ts",
   "src/agents/openclaw-tools.scheduled-widget.test.ts",
   "src/agents/openclaw-tools.session-context.test.ts",
   "src/agents/openclaw-tools.session-status.gateway-model.test.ts",
