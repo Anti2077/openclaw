@@ -2393,17 +2393,6 @@
         "configs": [
           "test/vitest/vitest.agents-core.config.ts"
         ],
-        "env": {
-          "OPENCLAW_VITEST_MAX_WORKERS": "2"
-        },
-        "includePatterns": [],
-        "pretestBuildMode": "runtime",
-        "seconds": 10
-      },
-      {
-        "configs": [
-          "test/vitest/vitest.agents-core.config.ts"
-        ],
         "env": {},
         "includePatterns": [
           "src/agents/agent-command-local.test.ts"
@@ -2421,15 +2410,6 @@
         ],
         "pretestBuildMode": "runtime",
         "seconds": 31
-      },
-      {
-        "configs": [
-          "test/vitest/vitest.agents-core.config.ts"
-        ],
-        "env": {},
-        "includePatterns": [],
-        "pretestBuildMode": "runtime",
-        "seconds": 8
       },
       {
         "configs": [
