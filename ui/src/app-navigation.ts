@@ -87,8 +87,12 @@ export function sidebarViewForPage(
   if (section) {
     return section;
   }
-  // Systems lists its machines in the Sessions view of the sidebar.
-  return isSessionRouteId(route) || route === "new-session" || route === "systems"
+  // Systems lists its machines in the Sessions view of the sidebar; the Sessions page sits
+  // beside the Sessions list it expands.
+  return isSessionRouteId(route) ||
+    route === "new-session" ||
+    route === "systems" ||
+    isSessionsHubRoute(route)
     ? "sessions"
     : undefined;
 }
