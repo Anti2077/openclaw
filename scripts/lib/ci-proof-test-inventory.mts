@@ -4449,6 +4449,7 @@ const PR_EXEMPT_RUNTIME_TEST_FILES = [
   "src/gateway/mention-directory.test.ts",
   "src/gateway/node-claude-skill-runtime.test.ts",
   "src/gateway/openresponses-http.test.ts",
+  "src/gateway/operator-approval-placement-grants.test.ts",
   "src/gateway/operator-approval-store.execution-identity.test.ts",
   "src/gateway/operator-run-cancellation.test.ts",
   "src/gateway/server-aux-handlers.authority.test.ts",

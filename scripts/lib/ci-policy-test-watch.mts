@@ -875,7 +875,10 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
       "src/config/sessions/session-transcript.worker.ts",
     ],
   },
-  ...["src/gateway/exec-approval-manager.test.ts"].map((testFile): PolicyTestWatch => ({
+  ...[
+    "src/gateway/exec-approval-manager.test.ts",
+    "src/gateway/operator-approval-placement-grants.test.ts",
+  ].map((testFile): PolicyTestWatch => ({
     testFile,
     watchGlobs: ["src/gateway/operator-approval-store.worker.ts"],
   })),
