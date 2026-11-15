@@ -109,7 +109,11 @@ describe("extension executable test plans", () => {
   it("requests overlap only for selected Telegram singleton envelopes", async () => {
     const { createChangedExtensionConfigShards } =
       await import("../../scripts/lib/ci-extension-test-shards.mts");
-    const files = ["telegram-ingress-spool", "telegram-ingress-drain", "webhook"].map(telegramFile);
+    const files = [
+      "telegram-ingress-spool",
+      "telegram-ingress-drain",
+      "telegram-ingress-supersede",
+    ].map(telegramFile);
     vi.spyOn(extensionTestPlan, "listExtensionTestFilesForRoots").mockReturnValue(files);
     const shards = createChangedExtensionConfigShards(["extensions/telegram"], {
       targets: new Set(files),
