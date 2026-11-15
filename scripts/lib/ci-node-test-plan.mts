@@ -356,6 +356,12 @@ const COMPACT_HOSTED_STORAGE_STATE_MAX_FILES = 64;
 const COMPACT_HOSTED_MAIN_MAX_FILES = new Map([
   ["agentic-control-plane-agent-chat", 30],
   ["agentic-gateway-methods", 96],
+  // Run 43604797931 spent 21 and 29 minutes in 235- and 305-file groups.
+  ["agentic-agents-support", 64],
+  ["core-runtime-config", 64],
+  // Run 43642761606 spent 13 and 18 minutes in 131- and 114-file command groups.
+  ["agentic-commands-status-tools", 64],
+  ["agentic-commands-doctor", 64],
 ]);
 const HOSTED_MAIN_UPDATE_TEST = "src/cli/update-cli.test.ts";
 // Trusted forks can use the GitHub profile on Blacksmith. Every compact
@@ -648,6 +654,7 @@ const STORAGE_MODULE_WORK_SECONDS = new Map<string, number>([
   ["src/channels/message/ingress-drain.async-work.test.ts", 2.656],
   ["src/tui/tui-last-session.test.ts", 5.299],
   ["src/worker/worker.chat-abort.test.ts", 15.867],
+  ["src/agents/bash-tools.exec-background-followup.test.ts", 2.969],
   ["src/channels/message-access/operator-authority.test.ts", 31.775],
   ["src/agents/subagents/registry/subagent-registry.persistence.test.ts", 23.639],
   ["src/auto-reply/reply/session.acp-reset-routing.test.ts", 8.938],
