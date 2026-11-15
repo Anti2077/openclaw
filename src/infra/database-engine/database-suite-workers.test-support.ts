@@ -2,8 +2,7 @@ import { afterAll, vi } from "vitest";
 
 const closePools = vi.hoisted((): Array<() => Promise<void>> => []);
 
-// Keep the real worker protocol, admission and native operations. These suites
-// cover data contracts; port-command.integration.test.ts keeps one-shot custody proof.
+// Keep the real worker protocol, admission and native operations.
 vi.mock("../worker-task-pool.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../worker-task-pool.js")>();
   const pools = new Map<string, InstanceType<typeof actual.WorkerTaskPool>>();

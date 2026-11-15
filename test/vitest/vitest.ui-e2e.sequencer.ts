@@ -70,7 +70,6 @@ const UI_E2E_FILE_SECONDS_HINTS = new Map<string, number>([
   ["model-providers.e2e.test.ts", 13],
   ["model-setup.e2e.test.ts", 12],
   ["native-link-routing.e2e.test.ts", 16],
-  ["native-nav-sidebar-toggle.e2e.test.ts", 24],
   ["new-session-page.catalog-reconnect.e2e.test.ts", 23],
   ["new-session-page.cloud-dispatch.e2e.test.ts", 38],
   ["new-session-page.device-dispatch.e2e.test.ts", 17],

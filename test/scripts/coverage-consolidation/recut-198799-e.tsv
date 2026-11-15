@@ -27,7 +27,7 @@ rank	removed_lines	file	keeper_files	reason
 1349	785	src/sessions/user-turn-transcript.test.ts	src/sessions/user-turn-transcript.persistence.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1241	809	src/shared/usage-overview.test.ts	ui/src/e2e/usage-overview.e2e.test.ts;test/e2e/qa-lab/runtime/gateway-usage-overview-quarters.e2e.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1303	795	src/state/openclaw-agent-admission-order.diagnostic.test.ts	src/state/openclaw-agent-db.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
-1470	765	src/state/openclaw-agent-db.integrity-cache.test.ts	src/state/openclaw-agent-db.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
+1470	0	src/state/openclaw-agent-db.integrity-cache.test.ts	src/state/openclaw-agent-db.integrity-cache.test.ts	Retained exact main 3987f958: "defers seal-less Doctor reopens (pinned WAL: %s)" covers deferred seal-less admission and structured incomplete-checkpoint receipts; openclaw-agent-db.test.ts does not cover this case.
 1474	764	src/state/openclaw-state-db.wal.test.ts	src/state/openclaw-state-db.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1481	763	test/scripts/mobile-release.test.ts	test/scripts/mobile-release-ci.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1308	794	test/scripts/pr-merge-prior-ci.test.ts	test/scripts/pr-wrappers.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
@@ -35,7 +35,7 @@ rank	removed_lines	file	keeper_files	reason
 1225	814	test/scripts/upgrade-survivor-systemd.test.ts	test/scripts/upgrade-survivor-assertions.test.ts;src/daemon/systemd.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1332	789	ui/src/components/browser/browser-panel-controller-input.test.ts	ui/src/components/browser/browser-panel-controller.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1211	817	ui/src/components/desktop/desktop-panel.test.ts	ui/src/components/desktop/desktop-panel-session.test.ts;ui/src/components/desktop/desktop-panel-presentation.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
-1235	774	ui/src/e2e/chat-model-controls.e2e.test.ts	ui/src/pages/chat/chat-view.test.ts;ui/src/pages/chat/chat-responsive.browser.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
+1235	774	ui/src/e2e/chat-model-controls.e2e.test.ts	ui/src/pages/chat/chat-view.test.ts;ui/src/pages/chat/chat-responsive.browser.test.ts	Approved file-level area consolidation; named final surviving keepers retained. Main 3987f958 only clears the existing search before Escape; it adds no assertion.
 1500	760	ui/src/e2e/command-palette-search.real-gateway.e2e.test.ts	ui/src/components/command-palette.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1319	792	ui/src/e2e/native-nav-sidebar-toggle.e2e.test.ts	ui/src/e2e/sidebar-customization.e2e.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
 1333	789	ui/src/e2e/native-plugin-ui.e2e.test.ts	ui/src/plugins/control-ui-runtime.test.ts;ui/src/e2e/native-plugin-navigation.e2e.test.ts	Approved file-level area consolidation; named final surviving keepers retained.
@@ -58,3 +58,4 @@ rank	removed_lines	file	keeper_files	reason
 # historical_fixture	Measured compact-job rows for upgrade-survivor-systemd and release-tooling-identity remain historical packing data, not executable selection.
 # workflow	Only the retired command-palette-search argument is removed from the CI step, its exact fixture and selection inventory.
 # keeper_chains	Ranks1248,1317,1348 resolve to final surviving suites rather than worker-retired intermediate keepers.
+# current_accounting	53 candidates; 45 removed; 8 retained. Integrity-cache retention resolves the exact main modify/delete conflict; chat-model-controls remains removed.

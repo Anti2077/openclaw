@@ -62,7 +62,6 @@ export function defineNativeModuleBoundaryTests(
 
       held.release();
       await expect.poll(() => element.evaluate((node) => node.matches(":defined"))).toBe(true);
-      // Registered-drawer focus and Escape are owned by native-nav-sidebar-toggle.e2e.test.ts.
       expect(errors).toEqual([]);
     });
 
