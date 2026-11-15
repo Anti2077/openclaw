@@ -293,7 +293,9 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/session-produced-media-delivery.test.ts",
   "src/gateway/session-repository-materialization.test.ts",
   "src/gateway/session-repository-publication-handoff.test.ts",
+  "src/gateway/session-restart-resume-custody.test.ts",
   "src/gateway/session-restart-resume.admission.test.ts",
+  "src/gateway/session-restart-resume.test.ts",
   "src/gateway/session-row-event-ancestor-placement.test.ts",
   "src/gateway/session-row-event-trees.test.ts",
   "src/gateway/session-row-projection.accepted-facts.test.ts",
@@ -313,6 +315,7 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/session-sharing-creation-receipts.test.ts",
   "src/gateway/session-sharing-groups.test.ts",
   "src/gateway/session-sharing-preparation.creation-settlement.test.ts",
+  "src/gateway/session-sharing-preparation.test.ts",
   "src/gateway/session-sharing-publication.integration.test.ts",
   "src/gateway/session-sharing.worker.test.ts",
   "src/gateway/session-startup-migration.test.ts",
@@ -576,7 +579,6 @@ export const gatewayDatabaseWorkerTestFiles = [
   "test/plugins/chat-abort-codex.gateway.test.ts",
   "test/plugins/codex-model-catalog.gateway.test.ts",
   "test/plugins/codex-native-search.gateway.test.ts",
-  "test/plugins/deep-research-recovery.gateway.test.ts",
   "test/plugins/deep-research-routing.gateway.test.ts",
 ];
 
@@ -638,12 +640,6 @@ export const gatewayMethodsTestInclude = [
   "src/gateway/server-methods/**/*.test.ts",
   ...gatewayPluginTestFiles,
 ];
-export const gatewayMethodsTestExclude = [
-  ...gatewayDatabaseWorkerTestFiles,
-  ...gatewayMethodsIsolatedTestFiles,
-  ...databaseWorkerCoreTestFiles,
-];
-
 // Gateway server tests that need private process state or a private module graph.
 export const gatewayServerIsolatedTestFiles = [
   // Real provider and subagent lifecycle registrations must survive the whole scenario.
@@ -652,6 +648,7 @@ export const gatewayServerIsolatedTestFiles = [
   "src/gateway/server.subagent-prompt-recent.gateway.test.ts",
   // Native provider imports must not retain a previous file's retired shared-state owner.
   "src/gateway/setup-inference.first-signin.integration.test.ts",
+  "test/plugins/deep-research-recovery.gateway.test.ts",
   // Sibling threads can fork and retain listener sockets until exec on Linux.
   "src/gateway/server/plugin-legacy-listeners.test.ts",
   // Native source captures must not retain this fixture's forbidden process constructors.
@@ -691,6 +688,13 @@ export const gatewayServerIsolatedTestFiles = [
   "src/gateway/server.placement-abandonment.test.ts",
   "src/gateway/server.sessions.compaction-read-errors.test.ts",
   "src/gateway/server.xai-fallback.test.ts",
+];
+
+export const gatewayMethodsTestExclude = [
+  ...gatewayDatabaseWorkerTestFiles,
+  ...gatewayMethodsIsolatedTestFiles,
+  ...gatewayServerIsolatedTestFiles,
+  ...databaseWorkerCoreTestFiles,
 ];
 
 export const gatewayCoreTestInclude = ["src/gateway/**/*.test.ts"];
