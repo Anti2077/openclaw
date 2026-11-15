@@ -56,6 +56,6 @@ rank	removed_lines	file	keeper_files	reason
 1490	0	src/infra/worker-task-pool.owned.test.ts	src/infra/worker-task-pool.owned.test.ts	Retained: New main burst idle-lifetime assertions retained.
 1336	0	packages/memory-host-sdk/src/host/memory-schema.test.ts	packages/memory-host-sdk/src/host/memory-schema.test.ts	Retained: Production deprecation-marking source names this contract suite; production pointer remains unchanged.
 # historical_fixture	Measured compact-job rows for upgrade-survivor-systemd and release-tooling-identity remain historical packing data, not executable selection.
-# workflow	Only the retired command-palette-search argument is removed from the CI step, its exact fixture and selection inventory.
+# workflow	Remove the retired command-palette-search argument from current CI selection; preserve it in the exact historical cancellation-receipt fixture bound by the admission hash.
 # keeper_chains	Ranks1248,1317,1348 resolve to final surviving suites rather than worker-retired intermediate keepers.
 # current_accounting	53 candidates; 45 removed; 8 retained. Integrity-cache retention resolves the exact main modify/delete conflict; chat-model-controls remains removed.
